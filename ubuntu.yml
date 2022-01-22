@@ -26,8 +26,8 @@
       --include={{ _include }} \
       {{ item }} {{ _destdir }}/ http://archive.ubuntu.com/ubuntu/
     cat >{{ _destdir }}/etc/apt/sources.list <<EOF
-    deb http://archive.ubuntu.com/ubuntu focal         main restricted universe
-    deb http://archive.ubuntu.com/ubuntu focal-updates main restricted
+    deb http://archive.ubuntu.com/ubuntu {{ item }}         main restricted universe
+    deb http://archive.ubuntu.com/ubuntu {{ item }}-updates main restricted
     EOF
     chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<EOF
       set -o errexit
