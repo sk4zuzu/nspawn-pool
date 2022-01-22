@@ -12,3 +12,8 @@ all: apply
 
 apply: $(SELF)/main.yml
 	cd $(SELF)/ && ansible-playbook -vv $<
+
+.PHONY: equinix
+
+equinix: $(SELF)/inventory/equinix.ini $(SELF)/main.yml
+	cd $(SELF)/ && ansible-playbook -vv -i $^
