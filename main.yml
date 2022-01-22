@@ -1,0 +1,17 @@
+---
+- hosts: hosts
+
+  module_defaults:
+    shell:
+      executable: /bin/bash
+
+  pre_tasks:
+    - include_tasks: "{{ playbook_dir }}/ubuntu.yml"
+
+  tasks:
+    - include_tasks: "{{ playbook_dir }}/machine.yml"
+      loop_control: { loop_var: machine }
+      loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+
+  post_tasks:
+    - include_tasks: "{{ playbook_dir }}/systemd.yml"

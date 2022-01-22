@@ -1,0 +1,128 @@
+---
+- name: Create directory for the machine
+  file:
+    path: "/var/lib/machines/{{ machine }}/"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=rx
+
+- name: Unarchive cached ubuntu root filesystem
+  unarchive:
+    creates: "/var/lib/machines/{{ machine }}/etc/"
+    dest: "/var/lib/machines/{{ machine }}/"
+    src: "/var/lib/machines/ubuntu-{{ hostvars[machine].ubuntu | default(ubuntu_codenames | first) }}.tar.gz"
+    remote_src: true
+    extra_opts: ["--strip-components=1"]
+
+- name: Add ubuntu user and group
+  lineinfile:
+    path: "{{ item.path }}"
+    regex: "^ubuntu:"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - path: "/var/lib/machines/{{ machine }}/etc/group"
+      line: "ubuntu:x:1000:"
+    - path: "/var/lib/machines/{{ machine }}/etc/passwd"
+      line: "ubuntu:x:1000:1000::/home/ubuntu:/bin/bash"
+    - path: "/var/lib/machines/{{ machine }}/etc/shadow"
+      line: "ubuntu:!:1::::::"
+
+- name: Add ubuntu user to sudoers
+  copy:
+    dest: "/var/lib/machines/{{ machine }}/etc/sudoers.d/ubuntu"
+    content: "ubuntu ALL=(ALL:ALL) NOPASSWD:SETENV: ALL"
+    owner: 0
+    group: 0
+    mode: u=rw,go=
+
+- name: Create home and .ssh directories for the ubuntu user
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: 1000
+    group: 1000
+    mode: u=rwx,go=
+  loop:
+    - "/var/lib/machines/{{ machine }}/home/ubuntu/"
+    - "/var/lib/machines/{{ machine }}/home/ubuntu/.ssh/"
+
+- name: Create home and .ssh directories for root user
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: 0
+    group: 0
+    mode: u=rwx,go=
+  loop:
+    - "/var/lib/machines/{{ machine }}/root/"
+    - "/var/lib/machines/{{ machine }}/root/.ssh/"
+
+- name: Install authorized_keys for ubuntu and root users
+  lineinfile:
+    path: "{{ item.path }}"
+    regex: "^{{ authorized_key }}"
+    line: "{{ authorized_key }}"
+    state: present
+    create: true
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: u=rw,go=
+  loop:
+    - path: "/var/lib/machines/{{ machine }}/home/ubuntu/.ssh/authorized_keys"
+      owner: 1000
+      group: 1000
+    - path: "/var/lib/machines/{{ machine }}/root/.ssh/authorized_keys"
+      owner: 0
+      group: 0
+
+- name: Define default DNS server in systemd-resolved
+  lineinfile:
+    path: "/var/lib/machines/{{ machine }}/etc/systemd/resolved.conf"
+    regex: "^DNS="
+    line: "DNS=1.1.1.1"
+    state: present
+
+- name: Configure network interfaces lo and host0
+  copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: 0
+    group: 0
+    mode: u=rw,go=
+  loop:
+    - dest: "/var/lib/machines/{{ machine }}/etc/network/interfaces.d/lo"
+      content: |
+        auto lo
+        iface lo inet loopback
+    - dest: "/var/lib/machines/{{ machine }}/etc/network/interfaces.d/host0"
+      content: |
+        auto host0
+        iface host0 inet static
+            address {{ hostvars[machine].ansible_host }}/{{ subnet_cidr | ipaddr('prefix') }}
+            gateway {{ subnet_cidr | ipaddr('1') | ipaddr('address') }}
+
+- name: Polpulate /etc/hosts file with names of all machines for current host
+  lineinfile:
+    dest: "/var/lib/machines/{{ machine }}/etc/hosts"
+    regex: "^{{ hostvars[item].ansible_host }}"
+    line: "{{ hostvars[item].ansible_host }} {{ item }}"
+  loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+
+- name: Define hostname for current machine
+  copy:
+    dest: "/var/lib/machines/{{ machine }}/etc/hostname"
+    content: |
+      {{ machine }}
+    owner: 0
+    group: 0
+    mode: u=rw,go=
+
+- name: Disable DHCP for host0 interface (fix)
+  copy:
+    dest: "/var/lib/machines/{{ machine }}/etc/systemd/network/80-container-host0.network"
+    content: |
+    owner: 0
+    group: 0
+    mode: u=rw,go=

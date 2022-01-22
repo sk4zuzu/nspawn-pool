@@ -1,0 +1,73 @@
+---
+- name: Install required system packages
+  apt:
+    name:
+      - bash
+      - debootstrap
+      - gzip
+      - tar
+    state: present
+    update_cache: true
+
+- name: Ensure /var/lib/machines directory exists
+  file:
+    path: /var/lib/machines/
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=
+
+- name: Deboostrap ubuntu chroot filesystems
+  shell: |
+    set -o errexit
+    debootstrap \
+      --arch amd64 \
+      --components=main,restricted,universe \
+      --include={{ _include }} \
+      {{ item }} {{ _destdir }}/ http://archive.ubuntu.com/ubuntu/
+    cat >{{ _destdir }}/etc/apt/sources.list <<EOF
+    deb http://archive.ubuntu.com/ubuntu focal         main restricted universe
+    deb http://archive.ubuntu.com/ubuntu focal-updates main restricted
+    EOF
+    chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<EOF
+      set -o errexit
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get -y update
+      apt-get -y upgrade
+      apt-get -y clean
+    EOF
+    mountpoint -q {{ _destdir }}/proc/ && umount {{ _destdir }}/proc/
+    mountpoint -q {{ _destdir }}/sys/ && umount {{ _destdir }}/sys/
+    tar -czpf {{ _destdir }}.tar.gz {{ _destdir }}/
+    rm -rf {{ _destdir }}/
+  args:
+    chdir: /var/lib/machines/
+    creates: "{{ _destdir }}.tar.gz"
+  vars:
+    _destdir: "ubuntu-{{ item }}"
+    _common_packages:
+      - apt-transport-https
+      - bash
+      - curl
+      - file
+      - git
+      - gnupg2
+      - groff
+      - htop
+      - ifupdown
+      - jq
+      - mc
+      - neovim
+      - net-tools
+      - openssh-client
+      - openssh-server
+      - systemd-container
+      - wget
+    _extra_packages:
+      - augeas-lenses
+      - augeas-tools
+      - libaugeas-dev
+      - python3-pip
+      - ruby
+    _include: "{{ (_common_packages + _extra_packages) | unique | join(',') }}"
+  loop: "{{ ubuntu_codenames | unique }}"

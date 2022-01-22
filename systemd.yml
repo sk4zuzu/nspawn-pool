@@ -1,0 +1,136 @@
+---
+- name: Install required system packages
+  apt:
+    name:
+      - systemd-container
+    state: present
+    update_cache: true
+
+- name: Define br0 interface (systemd-networkd)
+  copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: systemd-network
+    group: systemd-network
+    mode: u=rw,go=
+  loop:
+    - dest: /etc/systemd/network/br0.netdev
+      content: |
+        [NetDev]
+        Name=br0
+        Kind=bridge
+  register: copy_netdevs
+
+- name: Configure br0 interface (systemd-networkd)
+  copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: systemd-network
+    group: systemd-network
+    mode: u=rw,go=
+  loop:
+    - dest: /etc/systemd/network/br0.network
+      content: |
+        [Match]
+        Name=br0
+        [Network]
+        Address={{ subnet_cidr | ipaddr('1') }}
+        IPForward=ipv4
+        IPMasquerade=yes
+        ConfigureWithoutCarrier=yes
+        [Link]
+        ActivationPolicy=always-up
+  register: copy_networks
+
+- when: copy_netdevs.changed or copy_networks.changed
+  name: Restart systemd-networkd service
+  systemd:
+    name: systemd-networkd
+    state: restarted
+    daemon_reload: true
+
+- name: Ensure systemd-networkd service is enabled and started
+  systemd:
+    name: systemd-networkd
+    state: started
+    enabled: true
+
+- name: Create required systemd directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=
+  loop:
+    - /etc/systemd/nspawn/
+    - /etc/systemd/system/
+
+- name: Create required systemd directories for all installed systemd-nspawn services
+  file:
+    path: "/etc/systemd/system/systemd-nspawn@{{ item }}.service.d/"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=
+  loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+
+- name: Define all installed systemd-nspawn machines
+  copy:
+    dest: "/etc/systemd/nspawn/{{ item }}.nspawn"
+    content: |
+      [Exec]
+      Boot=true
+      Capability=all
+      [Files]
+      Bind=/lib/modules/
+      Bind=/sys/fs/cgroup/
+      Bind=/sys/module/
+      [Network]
+      Bridge=br0
+      VirtualEthernet=true
+      Port=tcp:{{ hostvars[item].ansible_port }}:22
+    owner: root
+    group: root
+    mode: u=rw,go=
+  loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+  register: copy_nspawns
+
+- name: Configure all installed systemd-nspawn services
+  copy:
+    dest: "/etc/systemd/system/systemd-nspawn@{{ item }}.service.d/override.conf"
+    content: |
+      [Unit]
+      After=sys-devices-virtual-net-br0.device
+      BindsTo=sys-devices-virtual-net-br0.device
+      [Service]
+      Environment=SYSTEMD_NSPAWN_USE_CGNS=0
+      ExecStart=
+      ExecStart=/usr/bin/systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --settings=override --machine=%i
+      Delegate=true
+      DevicePolicy=auto
+      DeviceAllow=/dev/kvm
+    owner: root
+    group: root
+    mode: u=rw,go=
+  loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+  register: copy_overrides
+
+- when: copy_nspawns.changed or copy_overrides.changed
+  block:
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: true
+
+    - name: Restart all installed systemd-nspawn services
+      systemd:
+        name: "systemd-nspawn@{{ item }}.service"
+        state: restarted
+      loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
+
+- name: Ensure all installed systemd-nspawn services are started
+  systemd:
+    name: "systemd-nspawn@{{ item }}.service"
+    state: started
+    enabled: true
+  loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
