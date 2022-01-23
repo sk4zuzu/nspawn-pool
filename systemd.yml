@@ -109,7 +109,8 @@
       ExecStart=/usr/bin/systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --settings=override --machine=%i
       Delegate=true
       DevicePolicy=auto
-      DeviceAllow=/dev/kvm rw
+      DeviceAllow=/dev/kvm rwm
+      DeviceAllow=/dev/mem rwm
       DeviceAllow=/dev/net/tun rw
     owner: root
     group: root
