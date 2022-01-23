@@ -103,6 +103,26 @@
             address {{ hostvars[machine].ansible_host }}/{{ subnet_cidr | ipaddr('prefix') }}
             gateway {{ subnet_cidr | ipaddr('1') | ipaddr('address') }}
 
+- name: Override the systemd-networkd service (fix)
+  block:
+    - name: Create directory /etc/systemd/system/systemd-networkd.service.d/ (fix)
+      file:
+        path: "/var/lib/machines/{{ machine }}/etc/systemd/system/systemd-networkd.service.d/"
+        state: directory
+        owner: 0
+        group: 0
+        mode: u=rwx,go=rx
+
+    - name: Allow for systemd-networkd to access /dev/net/tun (fix)
+      copy:
+        dest: "/var/lib/machines/{{ machine }}/etc/systemd/system/systemd-networkd.service.d/override.conf"
+        content: |
+          [Service]
+          DeviceAllow=/dev/net/tun rw
+        owner: 0
+        group: 0
+        mode: u=rw,go=r
+
 - name: Polpulate /etc/hosts file with names of all machines for current host
   lineinfile:
     dest: "/var/lib/machines/{{ machine }}/etc/hosts"
