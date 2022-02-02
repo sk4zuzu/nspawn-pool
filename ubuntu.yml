@@ -9,6 +9,13 @@
     state: present
     update_cache: true
 
+- name: Get list of ubuntu mirrors
+  uri:
+    url: http://mirrors.ubuntu.com/mirrors.txt
+    body_format: raw
+    return_content: true
+  register: uri_mirrors
+
 - name: Ensure /var/lib/machines directory exists
   file:
     path: /var/lib/machines/
@@ -25,11 +32,11 @@
       --arch amd64 \
       --components=main,restricted,universe \
       --include={{ _include }} \
-      {{ item }} {{ _destdir }}/ http://archive.ubuntu.com/ubuntu/
+      {{ item }} {{ _destdir }}/ {{ uri_mirrors.content.splitlines() | first | trim }}
 
     install -o 0 -g 0 -m u=rw,go=r /dev/fd/0 {{ _destdir }}/etc/apt/sources.list <<'EOF'
-    deb http://archive.ubuntu.com/ubuntu {{ item }}         main restricted universe
-    deb http://archive.ubuntu.com/ubuntu {{ item }}-updates main restricted
+    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item }}         main restricted universe
+    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item }}-updates main restricted
     EOF
 
     chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<'EOF'
