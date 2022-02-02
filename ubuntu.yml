@@ -27,12 +27,12 @@
       --include={{ _include }} \
       {{ item }} {{ _destdir }}/ http://archive.ubuntu.com/ubuntu/
 
-    install -o 0 -g 0 -m u=rw,go=r /dev/fd/3 {{ _destdir }}/etc/apt/sources.list 3<<EOF
+    install -o 0 -g 0 -m u=rw,go=r /dev/fd/0 {{ _destdir }}/etc/apt/sources.list <<'EOF'
     deb http://archive.ubuntu.com/ubuntu {{ item }}         main restricted universe
     deb http://archive.ubuntu.com/ubuntu {{ item }}-updates main restricted
     EOF
 
-    chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<EOF
+    chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<'EOF'
       set -o errexit
       export DEBIAN_FRONTEND=noninteractive
       apt-get -y update
@@ -40,7 +40,7 @@
       apt-get -y clean
     EOF
 
-    install -o 0 -g 0 -m u=rwx,go=r /dev/fd/3 {{ _destdir }}/etc/rc.local 3<<EOF
+    install -o 0 -g 0 -m u=rwx,go=r /dev/fd/0 {{ _destdir }}/etc/rc.local <<'EOF'
     #!/usr/bin/env sh
     set -e
     if ! [ -e /dev/mem ]; then
@@ -50,7 +50,7 @@
     EOF
 
     install -o 0 -g 0 -m u=rwx,go=rx -d {{ _destdir }}/etc/systemd/system/rc-local.service.d/
-    install -o 0 -g 0 -m u=rw,go=r /dev/fd/3 {{ _destdir }}/etc/systemd/system/rc-local.service.d/override.conf 3<<EOF
+    install -o 0 -g 0 -m u=rw,go=r /dev/fd/0 {{ _destdir }}/etc/systemd/system/rc-local.service.d/override.conf <<'EOF'
     [Install]
     WantedBy=multi-user.target
     EOF
