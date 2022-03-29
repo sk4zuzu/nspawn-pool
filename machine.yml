@@ -84,7 +84,7 @@
     line: "DNS=1.1.1.1"
     state: present
 
-- name: Configure network interfaces lo and host0
+- name: Configure network interfaces lo, host0 and br0
   copy:
     dest: "{{ item.dest }}"
     content: "{{ item.content }}"
@@ -98,8 +98,12 @@
         iface lo inet loopback
     - dest: "/var/lib/machines/{{ machine }}/etc/network/interfaces.d/host0"
       content: |
-        auto host0
-        iface host0 inet static
+        iface host0 inet manual
+    - dest: "/var/lib/machines/{{ machine }}/etc/network/interfaces.d/br0"
+      content: |
+        auto br0
+        iface br0 inet static
+            bridge_ports host0
             address {{ hostvars[machine].ansible_host }}/{{ subnet_cidr | ipaddr('prefix') }}
             gateway {{ subnet_cidr | ipaddr('1') | ipaddr('address') }}
 

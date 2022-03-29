@@ -79,6 +79,7 @@
     _common_packages:
       - apt-transport-https
       - bash
+      - bridge-utils
       - curl
       - file
       - git
@@ -86,6 +87,8 @@
       - groff
       - htop
       - ifupdown
+      - iptables
+      - iproute2
       - jq
       - mc
       - neovim
@@ -93,6 +96,7 @@
       - openssh-client
       - openssh-server
       - systemd-container
+      - tcpdump
       - wget
     _extra_packages:
       - augeas-lenses
