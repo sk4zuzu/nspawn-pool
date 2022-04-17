@@ -75,6 +75,15 @@
     mode: u=rwx,go=
   loop: "{{ groups[inventory_hostname_short ~ '_machines'] }}"
 
+- name: Ensure all shared_binds directories are present
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=rx
+  loop: "{{ shared_binds | default([]) | map('split', ':') | map('first') | list }}"
+
 - name: Define all installed systemd-nspawn machines
   copy:
     dest: "/etc/systemd/nspawn/{{ item }}.nspawn"
@@ -87,6 +96,9 @@
       Bind=/sys/fs/cgroup/
       Bind=/sys/fs/fuse/
       Bind=/sys/module/
+      {% for bind in shared_binds | default([]) %}
+      Bind={{ bind }}
+      {% endfor %}
       [Network]
       Bridge=br0
       VirtualEthernet=true
