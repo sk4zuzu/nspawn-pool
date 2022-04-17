@@ -3,12 +3,12 @@ ansible_user=root
 ansible_python_interpreter=/usr/bin/python3
 authorized_key="{{ lookup('file', '~/.ssh/id_rsa.pub') | trim }}"
 subnet_cidr=192.168.144.0/24
-ubuntu_codenames=["hirsute","focal"]
+ubuntu_releases=["hirsute","focal/20220118"]
 
 [hosts]
 asd ansible_host=10.11.12.13
 
 [asd_machines]
-asd1 ubuntu=hirsute ansible_port=2202 ansible_host="{{ subnet_cidr | ipaddr('2') | ipaddr('address') }}"
-asd2 ubuntu=focal   ansible_port=2204 ansible_host="{{ subnet_cidr | ipaddr('4') | ipaddr('address') }}"
-asd3 ubuntu=focal   ansible_port=2208 ansible_host="{{ subnet_cidr | ipaddr('8') | ipaddr('address') }}"
+asd1 ubuntu=hirsute        ansible_port=2202 ansible_host="{{ subnet_cidr | ipaddr('2') | ipaddr('address') }}"
+asd2 ubuntu=focal/20220118 ansible_port=2204 ansible_host="{{ subnet_cidr | ipaddr('4') | ipaddr('address') }}"
+asd3 ubuntu=focal/20220118 ansible_port=2208 ansible_host="{{ subnet_cidr | ipaddr('8') | ipaddr('address') }}"

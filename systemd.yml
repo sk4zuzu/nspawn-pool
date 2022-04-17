@@ -85,6 +85,7 @@
       [Files]
       Bind=/lib/modules/
       Bind=/sys/fs/cgroup/
+      Bind=/sys/fs/fuse/
       Bind=/sys/module/
       [Network]
       Bridge=br0
@@ -108,10 +109,14 @@
       ExecStart=
       ExecStart=/usr/bin/systemd-nspawn --quiet --keep-unit --boot --link-journal=try-guest --network-veth --settings=override --machine=%i
       Delegate=true
-      DevicePolicy=auto
+      DevicePolicy=
+      DevicePolicy=closed
       DeviceAllow=/dev/kvm rwm
       DeviceAllow=/dev/mem rwm
-      DeviceAllow=/dev/net/tun rw
+      DeviceAllow=/dev/net/tun rwm
+      DeviceAllow=/dev/fuse rwm
+      DeviceAllow=block-loop rwm
+      DeviceAllow=block-nbd rwm
     owner: root
     group: root
     mode: u=rw,go=

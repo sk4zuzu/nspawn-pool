@@ -1,59 +1,121 @@
 ---
+- name: Ensure /var/lib/machines directory exists
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: u=rwx,go=
+  loop:
+    - /var/lib/machines/
+    - /var/lib/machines/.cache/
+
+- name: Prepare release info
+  run_once: true
+  block:
+    - name: Parse the ubuntu_releases list
+      set_fact:
+        ubuntu_releases_parsed: >-
+          {%- set output = [] -%}
+          {%- for item in ubuntu_releases | unique -%}
+          {{-
+              output.append({
+                "key": item,
+                "codename": item.split('/')[0],
+                "release": (['release'] + item.split('/')[1:]) | select | join('-'),
+              })
+          -}}
+          {%- endfor -%}
+          {{- output -}}
+
+    - name: Get the SHA256SUMS file for every release
+      uri:
+        url: "https://cloud-images.ubuntu.com/minimal/releases/{{ item.codename }}/{{ item.release }}/SHA256SUMS"
+        body_format: raw
+        return_content: true
+      loop: "{{ ubuntu_releases_parsed }}"
+      register: uri_sha256sums
+
+    - name: Parse each SHA256SUMS file to extract artifact names
+      set_fact:
+        ubuntu_releases_list: "{{ _items | map(attribute='value') | list }}"
+        ubuntu_releases_dict: "{{ _items | items2dict }}"
+      vars:
+        _items: >-
+          {%- set output = [] -%}
+          {%- for item in uri_sha256sums.results -%}
+          {%- for line in item.content.splitlines() -%}
+          {%- if line.endswith('cloudimg-amd64-root.tar.xz') -%}
+          {{-
+              output.append({
+                "key": item.item.key,
+                "value": item.item | combine({
+                  "artifact": (line.split() | last).strip('*'),
+                  "archive": "{}-{}.orig.tar.xz".format(item.item.codename, item.item.release),
+                }),
+              })
+          -}}
+          {%- endif -%}
+          {%- endfor -%}
+          {%- endfor -%}
+          {{- output -}}
+
+- name: Download all rootfs tarballs
+  get_url:
+    url: "https://cloud-images.ubuntu.com/minimal/releases/{{ item.codename }}/{{ item.release }}/{{ item.artifact }}"
+    dest: "/var/lib/machines/.cache/{{ item.archive }}"
+    mode: u=rw,go=r
+  loop: "{{ ubuntu_releases_list }}"
+
 - name: Install required system packages
   apt:
     name:
       - bash
-      - debootstrap
       - gzip
       - tar
     state: present
     update_cache: true
 
-- name: Get list of ubuntu mirrors
-  uri:
-    url: http://mirrors.ubuntu.com/mirrors.txt
-    body_format: raw
-    return_content: true
-  register: uri_mirrors
-
-- name: Ensure /var/lib/machines directory exists
-  file:
-    path: /var/lib/machines/
-    state: directory
-    owner: root
-    group: root
-    mode: u=rwx,go=
-
-- name: Deboostrap ubuntu chroot filesystems
+- name: Build ubuntu chroot filesystems
   shell: |
     set -o errexit
 
-    debootstrap \
-      --arch amd64 \
-      --components=main,restricted,universe \
-      --include={{ _include }} \
-      {{ item }} {{ _destdir }}/ {{ uri_mirrors.content.splitlines() | first | trim }}
+    install -d {{ _destdir }}/ && tar -xf .cache/{{ item.archive }} -C {{ _destdir }}/
+
+    install -o 0 -g 0 -m u=rw,go=r -D /dev/fd/0 {{ _destdir }}/run/systemd/resolve/stub-resolv.conf <<'EOF'
+    nameserver 1.1.1.1
+    EOF
 
     install -o 0 -g 0 -m u=rw,go=r /dev/fd/0 {{ _destdir }}/etc/apt/sources.list <<'EOF'
-    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item }}         main restricted universe
-    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item }}-updates main restricted
+    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item.codename }}          main restricted universe
+    deb mirror://mirrors.ubuntu.com/mirrors.txt {{ item.codename }}-updates  main restricted
+    deb http://security.ubuntu.com/ubuntu       {{ item.codename }}-security main restricted universe
     EOF
 
+    mount -t proc proc {{ _destdir }}/proc/
+
     chroot {{ _destdir }}/ /bin/env -i bash --noprofile --norc -s <<'EOF'
-      set -o errexit
-      export DEBIAN_FRONTEND=noninteractive
-      apt-get -y update
-      apt-get -y upgrade
-      apt-get -y clean
+    set -o errexit
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get -y update
+    apt-get -y install {{ _include }}
+    apt-get -y clean
+    ssh-keygen -A
     EOF
+
+    mountpoint -q {{ _destdir }}/proc/ && umount {{ _destdir }}/proc/
 
     install -o 0 -g 0 -m u=rwx,go=r /dev/fd/0 {{ _destdir }}/etc/rc.local <<'EOF'
     #!/usr/bin/env sh
     set -e
-    if ! [ -e /dev/mem ]; then
-        mknod -m 660 /dev/mem c 1 1
-        chown root:kmem /dev/mem
-    fi
+    [ -e /dev/mem ] || { mknod -m 660 /dev/mem c 1 1 && chown root:kmem /dev/mem; }
+    [ -e /dev/fuse ] || mknod -m 666 /dev/fuse c 10 229
+    {% for index in range(8) %}
+    [ -e /dev/loop{{ index }} ] || mknod -m 660 /dev/loop{{ index }} b 7 {{ index }}
+    {% endfor %}
+    {% for index in range(8) %}
+    [ -e /dev/nbd{{ index }} ] || mknod -m 660 /dev/nbd{{ index }} b 43 {{ index * 32 }}
+    {% endfor %}
     EOF
 
     install -o 0 -g 0 -m u=rwx,go=rx -d {{ _destdir }}/etc/systemd/system/rc-local.service.d/
@@ -66,36 +128,37 @@
       /etc/systemd/system/rc-local.service \
       {{ _destdir }}/etc/systemd/system/multi-user.target.wants/rc-local.service
 
-    mountpoint -q {{ _destdir }}/proc/ && umount {{ _destdir }}/proc/
-    mountpoint -q {{ _destdir }}/sys/ && umount {{ _destdir }}/sys/
-
-    tar -czpf {{ _destdir }}.tar.gz {{ _destdir }}/
-    rm -rf {{ _destdir }}/
+    tar -czpf {{ _destdir }}.tar.gz {{ _destdir }}/ && rm -rf {{ _destdir }}/
   args:
     chdir: /var/lib/machines/
     creates: "{{ _destdir }}.tar.gz"
   vars:
-    _destdir: "ubuntu-{{ item }}"
+    _destdir: "{{ item.codename }}-{{ item.release }}"
     _common_packages:
       - apt-transport-https
       - bash
       - bridge-utils
       - curl
       - file
+      - gawk
       - git
       - gnupg2
       - groff
       - htop
       - ifupdown
-      - iptables
       - iproute2
+      - iptables
+      - iputils-ping
       - jq
       - mc
       - neovim
       - net-tools
       - openssh-client
       - openssh-server
+      - ripgrep
+      - sudo
       - systemd-container
+      - uuid-runtime
       - tcpdump
       - wget
     _extra_packages:
@@ -104,5 +167,5 @@
       - libaugeas-dev
       - python3-pip
       - ruby
-    _include: "{{ (_common_packages + _extra_packages) | unique | join(',') }}"
-  loop: "{{ ubuntu_codenames | unique }}"
+    _include: "{{ (_common_packages + _extra_packages) | unique | join(' ') }}"
+  loop: "{{ ubuntu_releases_list }}"
